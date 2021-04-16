@@ -1,0 +1,78 @@
+/*************************************************************************
+ * Copyright (C) [2018] by Cambricon, Inc.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a
+ * copy of this software and associated documentation files (the
+ * "Software"), to deal in the Software without restriction, including
+ * without limitation the rights to use, copy, modify, merge, publish,
+ * distribute, sublicense, and/or sell copies of the Software, and to
+ * permit persons to whom the Software is furnished to do so, subject to
+ * the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included
+ * in all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+ * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+ * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+ * IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+ * CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+ * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+ * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ *************************************************************************/
+
+# define ONELINE 512
+// YKH: PowerDifference BCL单核实现
+__mlu_entry__ void PowerDifferenceKernel(half* input1, half* input2, int32_t pow, half* output, int32_t len)
+{
+  // if (taskId > 0) return; // built-in variables
+  if (pow < 0) return;
+
+  // __bang_printf("总长度 %d 任务维度%d\n", len, taskDim);
+  
+  int32_t quotient = len / ONELINE / taskDim;
+  int32_t rem = len % ONELINE;
+  if (rem) quotient += 1;
+
+  // __bang_printf("分成 %d 份\n", quotient);
+  
+  __nram__ half input1_nram[ONELINE];
+  __nram__ half input2_nram[ONELINE];
+  // __nram__ half minused[ONELINE];
+  // __nram__ half output_nram[ONELINE];
+
+  int offset;
+  int one_line_size = ONELINE * sizeof(half);
+
+  // new offset = base + ONELINE * (i + clusterDim * (clusterId + coreId * coreDim)
+  
+  for (int32_t i = 0; i < quotient; i++) {
+
+    offset = ONELINE * (i + quotient * taskId);
+
+    // __bang_printf("Copying %d+%d...\n", offset, ONELINE);
+
+    __memcpy(input1_nram, input1 + offset, one_line_size, GDRAM2NRAM);
+    __memcpy(input2_nram, input2 + offset, one_line_size, GDRAM2NRAM);
+    __bang_sub(input1_nram, input1_nram, input2_nram, ONELINE);
+    __bang_mul(input2_nram, input1_nram, input1_nram, ONELINE);
+    for (int32_t j = 2; j < pow; j++)
+    {
+      __bang_mul(input2_nram, input2_nram, input1_nram, ONELINE);
+    }
+    __memcpy(output + offset, input2_nram, one_line_size, NRAM2GDRAM);
+
+    // if pow == 1: copy minused to 
+
+    // 二分求幂
+    // __nramset_half(output_nram, ONELINE, 1);
+    // int b = pow;
+    // while (b) {
+    //   if (b % 2)
+    //     __bang_mul(output_nram, output_nram, minused, ONELINE);
+    //   __bang_mul(minused, minused, minused, ONELINE);
+    //   b /= 2;
+    // }
+
+  }
+}
